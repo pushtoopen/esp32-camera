@@ -193,6 +193,8 @@ typedef struct {
  */
 esp_err_t esp_camera_init(const camera_config_t* config);
 
+esp_err_t ov2640_2nd_camera_init(const camera_config_t *config); //esp_camera_init MUST RUN 1st
+
 /**
  * @brief Deinitialize the camera driver
  *

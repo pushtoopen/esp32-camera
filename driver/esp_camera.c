@@ -27,6 +27,10 @@
 #include "cam_hal.h"
 #include "esp_camera.h"
 #include "xclk.h"
+
+#include "esp_timer.h" //added for skip frame
+
+
 #if CONFIG_OV2640_SUPPORT
 #include "ov2640.h"
 #endif
@@ -268,6 +272,86 @@ static pixformat_t get_output_data_format(camera_conv_mode_t conv_mode)
     return format;
 }
 #endif
+
+// static int IRAM_ATTR _gpio_get_level(gpio_num_t gpio_num)
+// {
+//     if (gpio_num < 32) {
+//         return (GPIO.in >> gpio_num) & 0x1;
+//     } else {
+//         return (GPIO.in1.data >> (gpio_num - 32)) & 0x1;
+//     }
+// }
+
+
+// static int skip_frame()
+// {
+//     if (s_state == NULL) {
+//         return -1;
+//     }
+//     int64_t st_t = esp_timer_get_time();
+//     while (_gpio_get_level(s_state->config.pin_vsync) == 0) {
+//         if((esp_timer_get_time() - st_t) > 1000000LL){
+//             goto timeout;
+//         }
+//     }
+//     while (_gpio_get_level(s_state->config.pin_vsync) != 0) {
+//         if((esp_timer_get_time() - st_t) > 1000000LL){
+//             goto timeout;
+//         }
+//     }
+//     while (_gpio_get_level(s_state->config.pin_vsync) == 0) {
+//         if((esp_timer_get_time() - st_t) > 1000000LL){
+//             goto timeout;
+//         }
+//     }
+//     return 0;
+
+// timeout:
+//     ESP_LOGE(TAG, "Timeout waiting for VSYNC");
+//     return -1;
+// }
+
+// *****************8 2nd camera init function, needs to be put in esp_camera.c each time it's updated *******
+
+
+esp_err_t ov2640_2nd_camera_init(const camera_config_t *config)
+{
+	//run standard init once before running this.
+    //assumes OV2640 camera
+	//assumes JPEG pixformat
+	//assumes 0x30 I2S address
+    //assumes you've switched all the GPIOs over to the other camera
+
+    esp_err_t err;
+
+    SCCB_Write(0x30, 0xFF, 0x01);//bank sensor
+    SCCB_Write(0x30, 0x12, 0x80);//reset
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "Doing SW reset of 2nd cam");
+    s_state->sensor.reset(&s_state->sensor);
+
+    (*s_state->sensor.set_quality)(&s_state->sensor, config->jpeg_quality);
+
+    ESP_LOGD(TAG, "Setting frame size for CAM2 to %dx%d", s_state->fb.width, s_state->fb.height);
+    if (s_state->sensor.set_framesize(&s_state->sensor,s_state->sensor.status.framesize ) != 0) {
+        ESP_LOGI(TAG, "Failed to set frame size for CAM2");
+        return ESP_FAIL;
+    }
+    s_state->sensor.set_pixformat(&s_state->sensor,s_state->sensor.pixformat);
+    s_state->sensor.set_gainceiling(&s_state->sensor, GAINCEILING_2X);
+    s_state->sensor.set_bpc(&s_state->sensor, false);
+    s_state->sensor.set_wpc(&s_state->sensor, true);
+    s_state->sensor.set_lenc(&s_state->sensor, true);
+    //if (skip_frame(config->pin_vsync)) { //checks for vsync
+    //    ESP_LOGI(TAG, "Timed out waiting on VSYNC for CAM2");
+    //    return ESP_FAIL;
+    //}
+    (*s_state->sensor.set_quality)(&s_state->sensor, config->jpeg_quality);
+
+    s_state->sensor.init_status(&s_state->sensor);
+    err = ESP_OK;
+    return err;
+}
 
 esp_err_t esp_camera_init(const camera_config_t *config)
 {
